@@ -1,0 +1,13 @@
+{
+  "name": "awstest",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "template:stack:create": "./scripts/aws-template.sh create",
+    "template:stack:update": "./scripts/aws-template.sh update",
+    "template:stack:delete": "./scripts/aws-template.sh delete"
+  },
+  "author": "Oleh Melnyk",
+  "license": "ISC"
+}
