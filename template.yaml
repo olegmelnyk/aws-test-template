@@ -190,6 +190,7 @@ Resources:
                   - 'es:*'
                   - 'kms:List*'
                   - 'kms:Describe*'
+                  - 'kms:CreateGrant'
                   - 'iam:PassRole'
                 Resource: '*'
 
@@ -221,30 +222,69 @@ Resources:
       Code:
         ZipFile: |
           var AWS = require('aws-sdk');
-          var response = require('cfn-response')
+          var response = require('cfn-response');
+          var keyId = '6a7ad40f-4265-4a49-99fa-ce6114d49e2f';
 
-          exports.handler = function(event, context) {
+          function listKeys(kms, params) {
+            return new Promise(function(resolve, reject) {
+              kms.listKeys(params, function (error, result) {
+                if (error) {
+                  reject(error);
+                } else {
+                  resolve(result);
+                }
+              });
+            });
+          }
+
+          function createElasticsearchDomain(es, params) {
+            return new Promise(function(resolve, reject) {
+              es.createElasticsearchDomain(params, function (error, result) {
+                if (error) {
+                  reject(error);
+                } else {
+                  resolve(result);
+                }
+              });
+            });
+          }
+
+          function deleteElasticsearchDomain(es, params) {
+            return new Promise(function(resolve, reject) {
+              es.deleteElasticsearchDomain(params, function (error, result) {
+                if (error) {
+                  reject(error);
+                } else {
+                  resolve(result);
+                }
+              });
+            });
+          }
+
+          exports.handler = async function(event, context) {
+            var es = new AWS.ES({ apiVersion: '2015-01-01' });
+            var kms = new AWS.KMS({ apiVersion: '2014-11-01' });
+            var props = event.ResourceProperties;
+
             var responseStatus = 'FAILED';
             var responseData = {};
 
             if (event.RequestType == "Delete") {
-              es.deleteElasticsearchDomain({ DomainName: props.dName }, function(err, result) {
-                if (err) {
-                  responseData = { Error: err.message };
-                }
-                response.send(event, context, responseStatus, responseData);
-              });
+              try {
+                await deleteElasticsearchDomain(es, { DomainName: props.dName });
+                responseStatus = 'SUCCESS';
+              } catch (error) {
+                responseData = { Error: error.message };
+              }
+              return response.send(event, context, responseStatus, responseData);
             }
-
-            var es = new AWS.ES({ apiVersion: '2015-01-01' });
-            var kms = new AWS.KMS({ apiVersion: '2014-11-01' });
-            var props = event.ResourceProperties;
 
             var params = {
               DomainName: props.dName,
               ElasticsearchVersion: props.version,
               AdvancedSecurityOptions: {
                 Enabled: true,
+                InternalUserDatabaseEnabled: true,
                 MasterUserOptions: {
                   MasterUserName: props.mUserName,
                   MasterUserPassword: props.mUserPwd
@@ -276,7 +316,7 @@ Resources:
 
             if (props.zAwarenessEnabled === 'true') {
               Object.assign(params.ElasticsearchClusterConfig, {
-                ZoneAwarenessEnabled: true,
+                InstanceCount: 3,
                 ZoneAwarenessConfig: {
                   AvailabilityZoneCount: 3
                 }
@@ -291,29 +331,36 @@ Resources:
               });
             }
 
-            kms.listKeys({}, function(err, result) {
-              if (err) {
-                responseData = { Error: err.message };
-                response.send(event, context, responseStatus, responseData);
-              } else if (!result.Keys.length) {
+            try {
+              var keysList = await listKeys(kms, {});
+
+              if (!keysList.Keys || !keysList.Keys.length) {
                 responseData = { Error: "No available KMS keys" };
-                response.send(event, context, responseStatus, responseData);
-              } else {
-                params.EncryptionAtRestOptions.KmsKeyId = result.Keys[0].KeyId;
-
-                es.createElasticsearchDomain(params, function(err, result) {
-                  if (err) {
-                    console.log(err);
-                    responseData = { Error: err.message };
-                  } else {
-                    responseStatus = 'SUCCESS';
-                    responseData = { Arn: result.DomainStatus.ARN };
-                  }
-
-                  response.send(event, context, responseStatus, responseData);
-                });
+                return response.send(event, context, responseStatus, responseData);
               }
-            });
+
+              var KMSKey = keysList.Keys.find(function(key) {
+                return key.KeyId === keyId;
+              });
+
+              if (!KMSKey) {
+                responseData = { Error: "Key (" + keyId + ") not found" };
+                return response.send(event, context, responseStatus, responseData);
+              }
+
+              params.EncryptionAtRestOptions.KmsKeyId = KMSKey.KeyId;
+
+              const result = await createElasticsearchDomain(es, params);
+              console.log('result', JSON.stringify(result));
+
+              responseStatus = 'SUCCESS';
+              responseData = { DomainEndpoint: result.DomainStatus.ARN };
+            } catch (error) {
+              console.log('error', error);
+              responseData = { Error: error.message };
+            }
+
+            return response.send(event, context, responseStatus, responseData);
           }
 
       Runtime: nodejs12.x
