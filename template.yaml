@@ -230,7 +230,7 @@ Resources:
           function delDomain(es,p) {return new Promise(function(res,rej){es.deleteElasticsearchDomain(p,function(e,r){return e?rej(e):res(r)})})}
           function describeElasticsearchDomain(es,p){return new Promise(function(res,rej){es.describeElasticsearchDomain(p,function(e,r){return e?rej(e):res(r)})})}
           async function getEndpoint(es, p) {
-            var t = 880, i = 15 * 1000, w = Date.now() + t * 1000, d = ''
+            var t = 1180, i = 15 * 1000, w = Date.now() + t * 1000, d = ''
             return new Promise(async function(res, rej) {
               var r
               while (Date.now() < w && !d) {
@@ -333,7 +333,7 @@ Resources:
           }
 
       Runtime: nodejs12.x
-      Timeout: 900
+      Timeout: 1200
 
 Outputs:
   DomainEndpoint:
