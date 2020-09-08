@@ -230,7 +230,7 @@ Resources:
           function delDomain(es,p) {return new Promise(function(res,rej){es.deleteElasticsearchDomain(p,function(e,r){return e?rej(e):res(r)})})}
           function describeElasticsearchDomain(es,p){return new Promise(function(res,rej){es.describeElasticsearchDomain(p,function(e,r){return e?rej(e):res(r)})})}
           async function getEndpoint(es, p) {
-            var t = 800, i = 15 * 1000, w = Date.now() + t * 1000, d = ''
+            var t = 880, i = 15 * 1000, w = Date.now() + t * 1000, d = ''
             return new Promise(async function(res, rej) {
               var r
               while (Date.now() < w && !d) {
@@ -324,10 +324,10 @@ Resources:
               var result = await createElasticsearchDomain(es,params)
               var endpoint = await getEndpoint(es,{DomainName:props.dName})
               responseStatus = 'SUCCESS'
-              responseData = { DomainEndpoint: endpoint }
+              responseData = {DomainEndpoint: endpoint}
             } catch (error) {
               console.log('error', error)
-              responseData = { Error: error.message }
+              responseData = {Error: error.message}
             }
             return response.send(event, context, responseStatus, responseData, result.DomainStatus.ARN)
           }
