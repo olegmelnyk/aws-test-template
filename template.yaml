@@ -221,64 +221,45 @@ Resources:
         - Arn
       Code:
         ZipFile: |
-          var AWS = require('aws-sdk');
-          var response = require('cfn-response');
-          var keyId = '6a7ad40f-4265-4a49-99fa-ce6114d49e2f';
+          var AWS = require('aws-sdk')
+          var response = require('cfn-response')
+          var keyId = '6a7ad40f-4265-4a49-99fa-ce6114d49e2f'
 
-          function listKeys(kms, params) {
-            return new Promise(function(resolve, reject) {
-              kms.listKeys(params, function (error, result) {
-                if (error) {
-                  reject(error);
-                } else {
-                  resolve(result);
-                }
-              });
-            });
+          function listKeys(kms,p) {return new Promise(function(res,rej){kms.listKeys(p,function(e,r){return e?rej(e):res(r)})})}
+          function createElasticsearchDomain(es,p){return new Promise(function(res,rej){es.createElasticsearchDomain(p,function (e,r){return e?rej(e):res(r)})})}
+          function delDomain(es,p) {return new Promise(function(res,rej){es.deleteElasticsearchDomain(p,function(e,r){return e?rej(e):res(r)})})}
+          function describeElasticsearchDomain(es,p){return new Promise(function(res,rej){es.describeElasticsearchDomain(p,function(e,r){return e?rej(e):res(r)})})}
+          async function getEndpoint(es, p) {
+            var t = 800, i = 15 * 1000, w = Date.now() + t * 1000, d = ''
+            return new Promise(async function(res, rej) {
+              var r
+              while (Date.now() < w && !d) {
+                await new Promise(function(r){setTimeout(r, i)})
+                r = await describeElasticsearchDomain(es, p)
+                d = r.DomainStatus.Endpoint
+              }
+              if(d) {
+                res(d)
+              } else {
+                rej(new Error('timeout'))
+              }
+            })
           }
-
-          function createElasticsearchDomain(es, params) {
-            return new Promise(function(resolve, reject) {
-              es.createElasticsearchDomain(params, function (error, result) {
-                if (error) {
-                  reject(error);
-                } else {
-                  resolve(result);
-                }
-              });
-            });
-          }
-
-          function deleteElasticsearchDomain(es, params) {
-            return new Promise(function(resolve, reject) {
-              es.deleteElasticsearchDomain(params, function (error, result) {
-                if (error) {
-                  reject(error);
-                } else {
-                  resolve(result);
-                }
-              });
-            });
-          }
-
           exports.handler = async function(event, context) {
-            var es = new AWS.ES({ apiVersion: '2015-01-01' });
-            var kms = new AWS.KMS({ apiVersion: '2014-11-01' });
-            var props = event.ResourceProperties;
-
-            var responseStatus = 'FAILED';
-            var responseData = {};
-
+            var es = new AWS.ES({ apiVersion: '2015-01-01' })
+            var kms = new AWS.KMS({ apiVersion: '2014-11-01' })
+            var props = event.ResourceProperties
+            var responseStatus = 'FAILED'
+            var responseData = {}
             if (event.RequestType == "Delete") {
               try {
-                await deleteElasticsearchDomain(es, { DomainName: props.dName });
-                responseStatus = 'SUCCESS';
+                await delDomain(es, { DomainName: props.dName });
+                responseStatus = 'SUCCESS'
               } catch (error) {
-                responseData = { Error: error.message };
+                responseData = { Error: error.message }
               }
-              return response.send(event, context, responseStatus, responseData);
+              return response.send(event, context, responseStatus, responseData)
             }
-
             var params = {
               DomainName: props.dName,
               ElasticsearchVersion: props.version,
@@ -312,55 +293,43 @@ Resources:
                 VolumeSize: props.ebsVolSize,
                 VolumeType: 'standard'
               }
-            };
-
+            }
             if (props.zAwarenessEnabled === 'true') {
               Object.assign(params.ElasticsearchClusterConfig, {
                 InstanceCount: 3,
                 ZoneAwarenessConfig: {
                   AvailabilityZoneCount: 3
                 }
-              });
+              })
             }
-
             if (props.dType == 'production') {
               Object.assign(params.ElasticsearchClusterConfig, {
                 DedicatedMasterEnabled: true,
                 DedicatedMasterCount: props.mNodeCnt,
                 DedicatedMasterType: props.mInstanceType
-              });
+              })
             }
-
             try {
-              var keysList = await listKeys(kms, {});
-
+              var keysList = await listKeys(kms, {})
               if (!keysList.Keys || !keysList.Keys.length) {
-                responseData = { Error: "No available KMS keys" };
-                return response.send(event, context, responseStatus, responseData);
+                responseData = {Error: "No available KMS keys"}
+                return response.send(event, context, responseStatus, responseData)
               }
-
-              var KMSKey = keysList.Keys.find(function(key) {
-                return key.KeyId === keyId;
-              });
-
-              if (!KMSKey) {
-                responseData = { Error: "Key (" + keyId + ") not found" };
-                return response.send(event, context, responseStatus, responseData);
+              var key = keysList.Keys.find(function(key){return key.KeyId===keyId});
+              if (!key) {
+                responseData = {Error:"Key ("+keyId+") not found"}
+                return response.send(event, context, responseStatus, responseData)
               }
-
-              params.EncryptionAtRestOptions.KmsKeyId = KMSKey.KeyId;
-
-              const result = await createElasticsearchDomain(es, params);
-              console.log('result', JSON.stringify(result));
-
-              responseStatus = 'SUCCESS';
-              responseData = { DomainEndpoint: result.DomainStatus.ARN };
+              params.EncryptionAtRestOptions.KmsKeyId = key.KeyId
+              var result = await createElasticsearchDomain(es,params)
+              var endpoint = await getEndpoint(es,{DomainName:props.dName})
+              responseStatus = 'SUCCESS'
+              responseData = { DomainEndpoint: endpoint }
             } catch (error) {
-              console.log('error', error);
-              responseData = { Error: error.message };
+              console.log('error', error)
+              responseData = { Error: error.message }
             }
-
-            return response.send(event, context, responseStatus, responseData);
+            return response.send(event, context, responseStatus, responseData, result.DomainStatus.ARN)
           }
 
       Runtime: nodejs12.x
